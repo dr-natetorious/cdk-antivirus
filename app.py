@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from os import environ
+from os import path
 
 from typing import List
 import aws_cdk as cdk
@@ -7,8 +8,12 @@ from constructs import Construct
 from aws_cdk import(
   aws_s3 as s3,
   aws_iam as iam,
+  aws_logs as logs,
   aws_transfer as tfx,
+  aws_lambda as lambda_,
 )
+
+SRC_ROOT_DIR = path.join(path.dirname(__file__),'src')
 
 class DataStorageConstruct(Construct):
   def __init__(self, scope: Construct, id:str, **kwargs) -> None:
@@ -20,12 +25,30 @@ class DataStorageConstruct(Construct):
   def grant_read_write(self,identity:iam.IGrantable)->None:
     self.incoming_bucket.grant_read_write(identity)
 
+class FunctionsConstruct(Construct):
+  def __init__(self, scope: Construct, id:str, **kwargs) -> None:
+    super().__init__(scope, id, **kwargs)
+
+    self.scan_file_function = lambda_.DockerImageFunction(self,'ScanFile',
+      description='Scans incoming file from TransferFamily Server',
+      timeout= cdk.Duration.seconds(60),
+      architecture= lambda_.Architecture.X86_64,
+      log_retention= logs.RetentionDays.TWO_WEEKS,
+      tracing= lambda_.Tracing.ACTIVE,
+      environment={
+        'asdf':'jkld'
+      },
+      code = lambda_.DockerImageCode.from_image_asset(
+        directory=path.join(SRC_ROOT_DIR,'scanfile')))
+
+  def grant_invoke(self,identity:iam.IGrantable)->None:
+    self.scan_file_function.grant_invoke(identity)
+
 class TransferWorkflowConstruct(Construct):
   '''
   Creates the AWS Transfer Family Workflow.
   see: https://docs.aws.amazon.com/transfer/latest/userguide/nominal-steps-workflow.html
   '''
-
   @property
   def execution_role(self)->iam.IRole:
     return self.__execution_role
@@ -43,17 +66,20 @@ class TransferWorkflowConstruct(Construct):
     storage = DataStorageConstruct(self,'Storage', **kwargs)
     storage.grant_read_write(self.execution_role)
 
+    functions = FunctionsConstruct(self,'Functions')
+    #functions.grant_invoke(self.execution_role)
+
     # self.__workflow = tfx.CfnWorkflow(self,'Definition',
     #   steps=[
-    #     tfx.CfnWorkflow.WorkflowStepProperty(copy_step_details={
-    #       "Name":"CopyStep",
-    #       "DestinationFileLocation":{
-    #         "S3FileLocation":{
-    #           'Bucket': storage.incoming_bucket.bucket_name,
-    #           'Key':'incoming/'
-    #         }
-    #       }
-    #     })
+    #     tfx.CfnWorkflow.WorkflowStepProperty(
+    #       copy_step_details={
+    #         "Name":"CopyStep",
+    #         "DestinationFileLocation":{
+    #           "S3FileLocation":{
+    #             'Bucket': storage.incoming_bucket.bucket_name,
+    #             'Key':'incoming/'
+    #           }
+    #         }})
     #   ])
 
   def to_details(self)->tfx.CfnServer.WorkflowDetailProperty:
