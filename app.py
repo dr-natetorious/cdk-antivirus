@@ -21,7 +21,10 @@ class DataStorageConstruct(Construct):
 
     self.incoming_bucket = s3.Bucket(self,'Bucket',
       removal_policy= cdk.RemovalPolicy.DESTROY)
-    
+
+  def grant_read(self,identity:iam.IGrantable)->None:
+    self.incoming_bucket.grant_read(identity)
+
   def grant_read_write(self,identity:iam.IGrantable)->None:
     self.incoming_bucket.grant_read_write(identity)
 
@@ -61,13 +64,15 @@ class TransferWorkflowConstruct(Construct):
     super().__init__(scope, id, **kwargs)
 
     self.__execution_role = iam.Role(self,'ExecutionRole',
-      assumed_by=iam.ServicePrincipal(service='transfer'))
-
-    storage = DataStorageConstruct(self,'Storage', **kwargs)
-    storage.grant_read_write(self.execution_role)
+      assumed_by=iam.ServicePrincipal(service='transfer'))    
 
     functions = FunctionsConstruct(self,'Functions')
-    #functions.grant_invoke(self.execution_role)
+    functions.grant_invoke(self.execution_role)
+
+    storage = DataStorageConstruct(self,'Storage', **kwargs)    
+    storage.grant_read_write(self.execution_role)
+    storage.grant_read(functions.scan_file_function.role)
+    
 
     self.__workflow = tfx.CfnWorkflow(self,'Definition',
       steps=[
