@@ -39,7 +39,7 @@ class FunctionsConstruct(Construct):
         'asdf':'jkld'
       },
       code = lambda_.DockerImageCode.from_image_asset(
-        directory=path.join(SRC_ROOT_DIR,'scanfile')))
+        directory=path.join(SRC_ROOT_DIR,'scanfile')))    
 
   def grant_invoke(self,identity:iam.IGrantable)->None:
     self.scan_file_function.grant_invoke(identity)
@@ -69,18 +69,35 @@ class TransferWorkflowConstruct(Construct):
     functions = FunctionsConstruct(self,'Functions')
     #functions.grant_invoke(self.execution_role)
 
-    # self.__workflow = tfx.CfnWorkflow(self,'Definition',
-    #   steps=[
-    #     tfx.CfnWorkflow.WorkflowStepProperty(
-    #       copy_step_details={
-    #         "Name":"CopyStep",
-    #         "DestinationFileLocation":{
-    #           "S3FileLocation":{
-    #             'Bucket': storage.incoming_bucket.bucket_name,
-    #             'Key':'incoming/'
-    #           }
-    #         }})
-    #   ])
+    self.__workflow = tfx.CfnWorkflow(self,'Definition',
+      steps=[
+        tfx.CfnWorkflow.WorkflowStepProperty(
+          type= "COPY",
+          copy_step_details={
+            "Name":"CopyStep",
+            "DestinationFileLocation":{
+              "S3FileLocation":{
+                'Bucket': storage.incoming_bucket.bucket_name,
+                'Key':'incoming/'
+              }
+            }}),
+        tfx.CfnWorkflow.WorkflowStepProperty(
+          type= "CUSTOM",
+          custom_step_details={
+            "Name":"VirusScan",
+            "Target": functions.scan_file_function.function_arn,
+            "TimeoutSeconds": functions.scan_file_function.timeout.to_seconds()
+          }),
+        tfx.CfnWorkflow.WorkflowStepProperty(
+          type= "TAG",
+          tag_step_details={
+            "Name":"MarkApproved",
+            "Tags": [{ 
+              'Key': "MalwareStatus",
+              'Value':"Clean"
+            }]
+          }),
+      ])
 
   def to_details(self)->tfx.CfnServer.WorkflowDetailProperty:
     return tfx.CfnServer.WorkflowDetailProperty(
